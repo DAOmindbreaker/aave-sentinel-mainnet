@@ -140,8 +140,8 @@ contract AaveReserveSentinel is ITrap {
     uint256 public constant BORROW_RATE_ALERT_BPS     = 2000;
 
     // ── Bit masks for ReserveConfigurationMap ─
-    uint256 constant FROZEN_MASK = 0x0800000000000000000000000000000000000000000000000000000000000000;
-    uint256 constant PAUSED_MASK = 0x1000000000000000000000000000000000000000000000000000000000000000;
+    uint256 constant FROZEN_MASK = 0x0000000000000000000000000000000000000000000000000200000000000000; // bit 57
+    uint256 constant PAUSED_MASK = 0x0000000000000000000000000000000000000000000000001000000000000000; // bit 60
 
     // ── collect() ────────────────────────────
 
@@ -216,7 +216,7 @@ contract AaveReserveSentinel is ITrap {
         }
 
         // Borrow rate: convert from RAY to BPS
-        r.borrowRateBps = data.currentVariableBorrowRate / (RAY / BPS_DENOM);
+        r.borrowRateBps = (data.currentVariableBorrowRate * BPS_DENOM) / RAY;
 
         r.valid = true;
     }
@@ -235,7 +235,7 @@ contract AaveReserveSentinel is ITrap {
         if (!current.valid || !mid.valid || !oldest.valid) return (false, bytes(""));
 
         // ── P2: Protocol pause transition ─────────────────────────────────────
-        if (current.protocolPaused && !oldest.protocolPaused) {
+        if (current.protocolPaused && !mid.protocolPaused) {
             return (true, abi.encode(uint8(2), uint256(1), uint256(0), uint256(0)));
         }
 
@@ -301,10 +301,14 @@ contract AaveReserveSentinel is ITrap {
         }
 
         // R2: Available liquidity collapse > 40% sustained
+        // Both current and mid must show significant drop from oldest (not just direction)
         if (oldest.availableLiquidity > 0 && current.availableLiquidity < oldest.availableLiquidity) {
             uint256 dropBps = ((oldest.availableLiquidity - current.availableLiquidity) * BPS_DENOM)
                 / oldest.availableLiquidity;
-            bool midAlsoDrop = mid.availableLiquidity < oldest.availableLiquidity;
+            uint256 midDropBps = mid.availableLiquidity < oldest.availableLiquidity
+                ? ((oldest.availableLiquidity - mid.availableLiquidity) * BPS_DENOM) / oldest.availableLiquidity
+                : 0;
+            bool midAlsoDrop = midDropBps >= (LIQUIDITY_DROP_BPS / 2); // mid must drop > 20%
             if (dropBps >= LIQUIDITY_DROP_BPS && midAlsoDrop) {
                 return (true, abi.encode(uint8(baseId + 2), current.availableLiquidity, oldest.availableLiquidity, dropBps));
             }

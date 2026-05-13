@@ -84,7 +84,7 @@ contract AaveReserveResponse {
             emit ProtocolPaused(block.number);
         } else {
             // Decode asset base and check type
-            uint8 base  = (riskId / 10) * 10;
+            uint8 base  = riskId - (riskId % 10);
             uint8 check = riskId % 10;
             uint8 assetId = base;
 
